@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ci-k8s-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ci-k8s-demo
+  template:
+    metadata:
+      labels:
+        app: ci-k8s-demo
+    spec:
+      containers:
+        - name: app
+          image: adel1331/ci-k8s-demo:v3   # Jenkins will set this later
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 3
+          livenessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 5
