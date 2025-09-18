@@ -72,7 +72,7 @@ pipeline {
     stage('Deploy') {
       steps {
         sh '''
-          set -eu
+          set -euo pipefail
 
           # 1) Ensure kubectl exists in the workspace and is on PATH
           KUBECTL_DIR="$WORKSPACE/bin"
@@ -80,34 +80,52 @@ pipeline {
           mkdir -p "$KUBECTL_DIR"
           if ! [ -x "$KUBECTL" ]; then
             echo "kubectl not found, downloading to $KUBECTL"
-            curl -sL -o "$KUBECTL" https://storage.googleapis.com/kubernetes-release/release/v1.31.0/bin/linux/amd64/kubectl
+            curl -fsSL -o "$KUBECTL" https://storage.googleapis.com/kubernetes-release/release/v1.31.0/bin/linux/amd64/kubectl
             chmod +x "$KUBECTL"
           fi
           export PATH="$KUBECTL_DIR:$PATH"
 
-          # 2) Use Jenkins’ kubeconfig (you already copied it into the container)
+          # 2) Use Jenkins' kubeconfig
           export KUBECONFIG=/var/jenkins_home/.kube/config
 
           # 3) Create/use a Jenkins-only context so we never touch your local docker-desktop entry
           J_CLUSTER="docker-desktop-jenkins"
           J_CONTEXT="docker-desktop-jenkins"
-
-          # reference the original docker-desktop entries, but don't mutate them
           BASE_CTX="docker-desktop"
-          BASE_USER="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.user}')"
-          NS="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.namespace}')"
+
+          # Reference the original docker-desktop entries, but don't mutate them
+          BASE_USER="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.user}' || true)"
+          NS="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.namespace}' || true)"
           [ -z "$NS" ] && NS=default
 
-          # Create the Jenkins-dedicated cluster once if it doesn't exist
-          if ! kubectl config get-clusters | grep -q "^${J_CLUSTER}$"; then
-            CA_DATA="$(kubectl config view -o jsonpath='{.clusters[?(@.name=="'"$BASE_CTX"'")].cluster.certificate-authority-data}')"
-            kubectl config set-cluster "$J_CLUSTER" \
-              --server="https://kubernetes.docker.internal:6443" \
-              --certificate-authority-data="$CA_DATA"
+          # Grab CA data (base64) from the base cluster
+          CA_DATA="$(kubectl config view -o jsonpath='{.clusters[?(@.name=="'"$BASE_CTX"'")].cluster.certificate-authority-data}' || true)"
+
+          # Create a temporary CA file if CA_DATA exists
+          CA_FILE=""
+          if [ -n "$CA_DATA" ]; then
+            CA_FILE="$WORKSPACE/ca.crt"
+            echo "$CA_DATA" | base64 -d > "$CA_FILE"
+          fi
+
+          # Create the Jenkins-dedicated cluster if it doesn't exist
+          if ! kubectl config get-clusters | grep -qx "$J_CLUSTER"; then
+            if [ -n "$CA_FILE" ] && [ -s "$CA_FILE" ]; then
+              kubectl config set-cluster "$J_CLUSTER" \
+                --server="https://kubernetes.docker.internal:6443" \
+                --certificate-authority="$CA_FILE" \
+                --embed-certs=true
+            else
+              # Fallback (less secure): use insecure-skip-tls-verify if no CA available
+              echo "WARNING: No CA data found in kubeconfig; using --insecure-skip-tls-verify"
+              kubectl config set-cluster "$J_CLUSTER" \
+                --server="https://kubernetes.docker.internal:6443" \
+                --insecure-skip-tls-verify=true
+            fi
           fi
 
           # Create the Jenkins-dedicated context if missing (reuse the same user)
-          if ! kubectl config get-contexts -o name | grep -q "^${J_CONTEXT}$"; then
+          if ! kubectl config get-contexts -o name | grep -qx "$J_CONTEXT"; then
             kubectl config set-context "$J_CONTEXT" \
               --cluster="$J_CLUSTER" \
               --user="$BASE_USER" \
