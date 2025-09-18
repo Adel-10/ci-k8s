@@ -41,6 +41,10 @@ pipeline {
 
             export PATH="$KUBECTL_DIR:$PATH"
 
+            export KUBECONFIG=/var/jenkins_home/.kube/config
+
+            kubectl config use-context docker-desktop
+
             kubectl version --client
             kubectl get ns
 
