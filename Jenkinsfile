@@ -138,6 +138,23 @@ pipeline {
         '''
       }
     }
+    stage('Smoke Test') {
+      steps {
+        sh '''
+          set -eu
+          # Port-forward service:80 -> local:18080 (runs in the agent; background job)
+          kubectl port-forward svc/ci-k8s-demo 18080:80 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+          # Give it a moment
+          for i in 1 2 3 4 5; do
+            if curl -fsS http://localhost:18080/ >/tmp/health.txt 2>/dev/null; then break; fi
+            sleep 1
+          done
+          curl -f http://localhost:18080/ | head -c 200
+          kill $PF_PID || true
+        '''
+      }
+    }
 
   }
   post {
