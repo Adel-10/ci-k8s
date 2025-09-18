@@ -58,3 +58,4 @@ pipeline {
     failure { echo "Pipeline failed — check logs." }
   }
 }
+}
