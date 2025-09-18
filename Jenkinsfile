@@ -129,7 +129,7 @@ pipeline {
     //       kubectl rollout status deployment/ci-k8s-demo --timeout=120s
     //     '''
     //   }
-    }
+    //}
   }
   post {
     success { echo "Deployed ${FULL_TAG}" }
