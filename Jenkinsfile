@@ -110,19 +110,11 @@ pipeline {
 
           # Create the Jenkins-dedicated cluster if it doesn't exist
           if ! kubectl config get-clusters | grep -qx "$J_CLUSTER"; then
-            if [ -n "$CA_FILE" ] && [ -s "$CA_FILE" ]; then
-              kubectl config set-cluster "$J_CLUSTER" \
-                --server="https://kubernetes.docker.internal:6443" \
-                --certificate-authority="$CA_FILE" \
-                --embed-certs=true
-            else
-              # Fallback (less secure): use insecure-skip-tls-verify if no CA available
-              echo "WARNING: No CA data found in kubeconfig; using --insecure-skip-tls-verify"
-              kubectl config set-cluster "$J_CLUSTER" \
-                --server="https://kubernetes.docker.internal:6443" \
-                --insecure-skip-tls-verify=true
-            fi
+            kubectl config set-cluster "$J_CLUSTER" \
+              --server="https://kubernetes.docker.internal:6443" \
+              --insecure-skip-tls-verify=true
           fi
+
 
           # Create the Jenkins-dedicated context if missing (reuse the same user)
           if ! kubectl config get-contexts -o name | grep -qx "$J_CONTEXT"; then
