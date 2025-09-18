@@ -72,7 +72,7 @@ pipeline {
     stage('Deploy') {
       steps {
         sh '''
-          set -euo pipefail
+          set -eu 
 
           # 1) Ensure kubectl exists in the workspace and is on PATH
           KUBECTL_DIR="$WORKSPACE/bin"
