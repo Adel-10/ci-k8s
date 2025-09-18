@@ -24,16 +24,6 @@ pipeline {
         }
       }
     }
-    stage('Push'){
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'U', passwordVariable: 'P')]) {
-          sh '''
-            echo "$P" | docker login -u "$U" --password-stdin ${REGISTRY}
-          '''
-        }
-        sh "docker push ${FULL_TAG}"
-      }
-    }
     // stage('Deploy'){
     //   steps{
     //       sh '''
