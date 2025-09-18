@@ -98,14 +98,28 @@ pipeline {
         sh '''
           set -eu
 
-          # Start port-forward in background and capture its PID
+          # --- Ensure kubectl in PATH (same as Deploy stage) ---
+          KUBECTL_DIR="$WORKSPACE/bin"
+          KUBECTL="$KUBECTL_DIR/kubectl"
+          mkdir -p "$KUBECTL_DIR"
+          if ! [ -x "$KUBECTL" ]; then
+            echo "kubectl not found, downloading to $KUBECTL"
+            curl -fsSL -o "$KUBECTL" https://storage.googleapis.com/kubernetes-release/release/v1.31.0/bin/linux/amd64/kubectl
+            chmod +x "$KUBECTL"
+          fi
+          export PATH="$KUBECTL_DIR:$PATH"
+
+          # --- Use Jenkins' kubeconfig again ---
+          export KUBECONFIG=/var/jenkins_home/.kube/config
+
+          # --- Start port-forward in background and capture its PID ---
           PF_LOG="/tmp/pf.log"
           PF_PID_FILE="/tmp/pf.pid"
           : > "$PF_LOG"
           ( nohup kubectl port-forward svc/ci-k8s-demo 18080:80 >"$PF_LOG" 2>&1 & echo $! > "$PF_PID_FILE" )
           PF_PID="$(cat "$PF_PID_FILE")"
 
-          # Wait for port-forward to bind (either log line or successful TCP connect)
+          # --- Wait for forward to bind (log or TCP connect), fail early if it dies ---
           for i in $(seq 1 20); do
             if grep -q "Forwarding from 127.0.0.1:18080 -> 80" "$PF_LOG" 2>/dev/null; then
               break
@@ -113,7 +127,6 @@ pipeline {
             if curl -fsS http://127.0.0.1:18080/ >/dev/null 2>&1; then
               break
             fi
-            # If the process died, dump logs and fail early
             if ! kill -0 "$PF_PID" 2>/dev/null; then
               echo "port-forward process died early:"
               cat "$PF_LOG" || true
@@ -122,15 +135,16 @@ pipeline {
             sleep 0.5
           done
 
-          # Final health check (head output just to prove content)
+          # --- Final health check ---
           curl -fsS http://127.0.0.1:18080/ | head -c 200
 
-          # Cleanup
+          # --- Cleanup ---
           kill "$PF_PID" 2>/dev/null || true
           wait "$PF_PID" 2>/dev/null || true
         '''
       }
     }
+
   }
   post {
     success { echo "Deployed ${FULL_TAG}" }
