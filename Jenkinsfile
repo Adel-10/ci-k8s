@@ -45,6 +45,11 @@ pipeline {
 
             kubectl config use-context docker-desktop
 
+            CURR_SERVER="$(kubectl config view -o jsonpath='{.clusters[?(@.name=="docker-desktop")].cluster.server}')"
+            if echo "$CURR_SERVER" | grep -q "127.0.0.1"; then
+                kubectl config set-cluster docker-desktop --server=https://kubernetes.docker.internal:6443
+            fi
+
             kubectl version --client
             kubectl get ns
 
