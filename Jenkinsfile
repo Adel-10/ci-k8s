@@ -9,9 +9,18 @@ pipeline {
     stage('Build & Tag'){
       steps {
         script {
-          GIT_SHA = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-          FULL_TAG = "${IMAGE}:${GIT_SHA}"
-          sh "docker build -t ${FULL_TAG} ."
+            def GIT_SHA  = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+            def FULL_TAG = "adel1331/ci-k8s-demo:${GIT_SHA}"
+
+            sh "docker build -t ${FULL_TAG} ."
+            withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'U', passwordVariable: 'P')]) {
+                sh 'echo "$P" | docker login -u "$U" --password-stdin docker.io'
+            }
+            sh "docker push ${FULL_TAG}"
+
+            // make it available to later stages
+            env.FULL_TAG = FULL_TAG
+            echo "Exported FULL_TAG=${env.FULL_TAG}"
         }
       }
     }
@@ -50,7 +59,7 @@ pipeline {
                 kubectl config set-cluster docker-desktop --server=https://kubernetes.docker.internal:6443
             fi
 
-            kubectl version --client
+            kubectl cluster-info
             kubectl get ns
 
             kubectl apply -f k8s/service.yaml
