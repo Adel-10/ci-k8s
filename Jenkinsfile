@@ -74,39 +74,55 @@ pipeline {
         sh '''
           set -eu
 
+          # 1) Ensure kubectl exists in the workspace and is on PATH
+          KUBECTL_DIR="$WORKSPACE/bin"
+          KUBECTL="$KUBECTL_DIR/kubectl"
+          mkdir -p "$KUBECTL_DIR"
+          if ! [ -x "$KUBECTL" ]; then
+            echo "kubectl not found, downloading to $KUBECTL"
+            curl -sL -o "$KUBECTL" https://storage.googleapis.com/kubernetes-release/release/v1.31.0/bin/linux/amd64/kubectl
+            chmod +x "$KUBECTL"
+          fi
+          export PATH="$KUBECTL_DIR:$PATH"
+
+          # 2) Use Jenkins’ kubeconfig (you already copied it into the container)
           export KUBECONFIG=/var/jenkins_home/.kube/config
 
-          # Create distinct names so we never touch your local "docker-desktop"
+          # 3) Create/use a Jenkins-only context so we never touch your local docker-desktop entry
           J_CLUSTER="docker-desktop-jenkins"
           J_CONTEXT="docker-desktop-jenkins"
-          J_USER="jenkins-user"
 
-          # If the cluster alias doesn’t exist, create it from the existing docker-desktop
+          # reference the original docker-desktop entries, but don't mutate them
+          BASE_CTX="docker-desktop"
+          BASE_USER="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.user}')"
+          NS="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.namespace}')"
+          [ -z "$NS" ] && NS=default
+
+          # Create the Jenkins-dedicated cluster once if it doesn't exist
           if ! kubectl config get-clusters | grep -q "^${J_CLUSTER}$"; then
-            # read current CA/cert data from docker-desktop
-            SERVER=$(kubectl config view -o jsonpath='{.clusters[?(@.name=="docker-desktop")].cluster.server}')
-            CA=$(kubectl config view -o jsonpath='{.clusters[?(@.name=="docker-desktop")].cluster.certificate-authority-data}')
-            # create jenkins-dedicated cluster and point it to kubernetes.docker.internal
-            kubectl config set-cluster "${J_CLUSTER}" \
-              --server=https://kubernetes.docker.internal:6443 \
-              --certificate-authority-data="${CA}"
-
-            # mirror user/credentials (token/client certs) from current context
-            USERNAME=$(kubectl config view -o jsonpath='{.contexts[?(@.name=="docker-desktop")].context.user}')
-            USERCFG=$(kubectl config view -o json | jq -r \
-              --arg u "$USERNAME" '.users[] | select(.name==$u)')
-            echo "$USERCFG" | jq -r '.name="'$J_USER'"' | kubectl config set-credentials "$J_USER" --raw
-
-            # create a new context that uses the same namespace as docker-desktop
-            NS=$(kubectl config view -o jsonpath='{.contexts[?(@.name=="docker-desktop")].context.namespace}')
-            [ -z "$NS" ] && NS=default
-            kubectl config set-context "${J_CONTEXT}" --cluster="${J_CLUSTER}" --user="${J_USER}" --namespace="$NS"
+            CA_DATA="$(kubectl config view -o jsonpath='{.clusters[?(@.name=="'"$BASE_CTX"'")].cluster.certificate-authority-data}')"
+            kubectl config set-cluster "$J_CLUSTER" \
+              --server="https://kubernetes.docker.internal:6443" \
+              --certificate-authority-data="$CA_DATA"
           fi
 
-          # Use the jenkins-only context
-          kubectl config use-context "${J_CONTEXT}"
+          # Create the Jenkins-dedicated context if missing (reuse the same user)
+          if ! kubectl config get-contexts -o name | grep -q "^${J_CONTEXT}$"; then
+            kubectl config set-context "$J_CONTEXT" \
+              --cluster="$J_CLUSTER" \
+              --user="$BASE_USER" \
+              --namespace="$NS"
+          fi
 
+          # Use Jenkins-only context
+          kubectl config use-context "$J_CONTEXT"
 
+          # Sanity checks
+          kubectl version --client
+          kubectl cluster-info
+          kubectl get ns
+
+          # 4) Deploy as before
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl set image deployment/ci-k8s-demo app=${FULL_TAG}
