@@ -26,40 +26,31 @@ pipeline {
       }
     }
     stage('Deploy'){
-        steps {
-            script {
-                if (!env.FULL_TAG) {
-                    def GIT_SHA = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    env.FULL_TAG = "adel1331/ci-k8s-demo:${GIT_SHA}"
-                }
-            }
+        steps{
             sh '''
-                #!/usr/bin/env bash
-                set -euo pipefail
+            set -eu
+            KUBECTL_DIR="$WORKSPACE/bin"
+            KUBECTL="$KUBECTL_DIR/kubectl"
+            mkdir -p "$KUBECTL_DIR"
 
-                KUBECTL_DIR="$WORKSPACE/bin"
-                KUBECTL="$KUBECTL_DIR/kubectl"
-                mkdir -p "$KUBECTL_DIR"
-
-                if [[ ! -x "$KUBECTL" ]]; then
+            if [ ! -x "$KUBECTL" ]; then
                 VER=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
                 curl -sL -o "$KUBECTL" "https://storage.googleapis.com/kubernetes-release/release/${VER}/bin/linux/amd64/kubectl"
                 chmod +x "$KUBECTL"
-                fi
+            fi
 
-                export PATH="$KUBECTL_DIR:$PATH"
+            export PATH="$KUBECTL_DIR:$PATH"
 
-                kubectl version --client
-                kubectl get ns
+            kubectl version --client
+            kubectl get ns
 
-                kubectl apply -f k8s/service.yaml
-                kubectl apply -f k8s/deployment.yaml
-                kubectl set image deployment/ci-k8s-demo app="${FULL_TAG}" --record
-                kubectl rollout status deployment/ci-k8s-demo --timeout=120s
+            kubectl apply -f k8s/service.yaml
+            kubectl apply -f k8s/deployment.yaml
+            kubectl set image deployment/ci-k8s-demo app=${FULL_TAG} --record
+            kubectl rollout status deployment/ci-k8s-demo --timeout=120s
             '''
         }
     }
-
   }
   post {
     success { echo "Deployed ${FULL_TAG}" }
