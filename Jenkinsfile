@@ -26,22 +26,33 @@ pipeline {
       }
     }
     stage('Deploy'){
-      steps {
-        sh '''
-          if ! command -v kubectl >/dev/null 2>&1; then
-            curl -L -o /tmp/kubectl https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
-            chmod +x /tmp/kubectl && mv /tmp/kubectl /usr/local/bin/kubectl
-          fi
-        '''
-        sh """
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/deployment.yaml
-          kubectl set image deployment/ci-k8s-demo app=${FULL_TAG} --record
-          kubectl rollout status deployment/ci-k8s-demo --timeout=120s
-        """
-      }
-    }
-  }
+        steps{
+            sh '''
+            set -euo pipefail
+            KUBECTL_DIR="$WORKSPACE/bin"
+            KUBECTL="$KUBECTL_DIR/kubectl"
+            mkdir -p "$KUBECTL_DIR"
+
+            if [ ! -x "$KUBECTL" ]; then
+                VER=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+                curl -sL -o "$KUBECTL" "https://storage.googleapis.com/kubernetes-release/release/${VER}/bin/linux/amd64/kubectl"
+                chmod +x "$KUBECTL"
+            fi
+
+            export PATH="$KUBECTL_DIR:$PATH"
+
+            kubectl version --client
+            kubectl get ns
+
+            kubectl apply -f k8s/service.yaml
+            kubectl apply -f k8s/deployment.yaml
+            kubectl set image deployment/ci-k8s-demo app=${FULL_TAG} --record
+            kubectl rollout status deployment/ci-k8s-demo --timeout=120s
+            '''
+        }
+        }
+
+
   post {
     success { echo "Deployed ${FULL_TAG}" }
     failure { echo "Pipeline failed — check logs." }
