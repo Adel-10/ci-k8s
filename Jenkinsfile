@@ -97,20 +97,40 @@ pipeline {
       steps {
         sh '''
           set -eu
-          # Port-forward service:80 -> local:18080 (runs in the agent; background job)
-          kubectl port-forward svc/ci-k8s-demo 18080:80 >/tmp/pf.log 2>&1 &
-          PF_PID=$!
-          # Give it a moment
-          for i in 1 2 3 4 5; do
-            if curl -fsS http://localhost:18080/ >/tmp/health.txt 2>/dev/null; then break; fi
-            sleep 1
+
+          # Start port-forward in background and capture its PID
+          PF_LOG="/tmp/pf.log"
+          PF_PID_FILE="/tmp/pf.pid"
+          : > "$PF_LOG"
+          ( nohup kubectl port-forward svc/ci-k8s-demo 18080:80 >"$PF_LOG" 2>&1 & echo $! > "$PF_PID_FILE" )
+          PF_PID="$(cat "$PF_PID_FILE")"
+
+          # Wait for port-forward to bind (either log line or successful TCP connect)
+          for i in $(seq 1 20); do
+            if grep -q "Forwarding from 127.0.0.1:18080 -> 80" "$PF_LOG" 2>/dev/null; then
+              break
+            fi
+            if curl -fsS http://127.0.0.1:18080/ >/dev/null 2>&1; then
+              break
+            fi
+            # If the process died, dump logs and fail early
+            if ! kill -0 "$PF_PID" 2>/dev/null; then
+              echo "port-forward process died early:"
+              cat "$PF_LOG" || true
+              exit 1
+            fi
+            sleep 0.5
           done
-          curl -f http://localhost:18080/ | head -c 200
-          kill $PF_PID || true
+
+          # Final health check (head output just to prove content)
+          curl -fsS http://127.0.0.1:18080/ | head -c 200
+
+          # Cleanup
+          kill "$PF_PID" 2>/dev/null || true
+          wait "$PF_PID" 2>/dev/null || true
         '''
       }
     }
-
   }
   post {
     success { echo "Deployed ${FULL_TAG}" }
