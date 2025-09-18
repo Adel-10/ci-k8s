@@ -72,9 +72,9 @@ pipeline {
     stage('Deploy') {
       steps {
         sh '''
-          set -eu 
+          set -eu
 
-          # 1) Ensure kubectl exists in the workspace and is on PATH
+          # --- Ensure kubectl in PATH ---
           KUBECTL_DIR="$WORKSPACE/bin"
           KUBECTL="$KUBECTL_DIR/kubectl"
           mkdir -p "$KUBECTL_DIR"
@@ -85,61 +85,60 @@ pipeline {
           fi
           export PATH="$KUBECTL_DIR:$PATH"
 
-          # 2) Use Jenkins' kubeconfig
+          # --- Use Jenkins' kubeconfig ---
           export KUBECONFIG=/var/jenkins_home/.kube/config
 
-          # 3) Create/use a Jenkins-only context so we never touch your local docker-desktop entry
+          # Names
           J_CLUSTER="docker-desktop-jenkins"
           J_CONTEXT="docker-desktop-jenkins"
           BASE_CTX="docker-desktop"
 
-          # Reference the original docker-desktop entries, but don't mutate them
+          # Derive base user/ns (keep these; we only swap the server)
           BASE_USER="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.user}' || true)"
           NS="$(kubectl config view -o jsonpath='{.contexts[?(@.name=="'"$BASE_CTX"'")].context.namespace}' || true)"
           [ -z "$NS" ] && NS=default
 
-          # Grab CA data (base64) from the base cluster
-          CA_DATA="$(kubectl config view -o jsonpath='{.clusters[?(@.name=="'"$BASE_CTX"'")].cluster.certificate-authority-data}' || true)"
+          # Pick a host-reachable name for Docker Desktop's K8s API
+          HOST_NAME=""
+          for name in kubernetes.docker.internal host.docker.internal; do
+            if getent hosts "$name" >/dev/null 2>&1 || nslookup "$name" >/dev/null 2>&1; then
+              HOST_NAME="$name"; break
+            fi
+          done
+          [ -z "$HOST_NAME" ] && HOST_NAME="kubernetes.docker.internal"
 
-          # Create a temporary CA file if CA_DATA exists
-          CA_FILE=""
-          if [ -n "$CA_DATA" ]; then
-            CA_FILE="$WORKSPACE/ca.crt"
-            echo "$CA_DATA" | base64 -d > "$CA_FILE"
-          fi
+          # --- IMPORTANT: delete any stale jenkins cluster/context so we don't reuse bad CA state ---
+          kubectl config delete-context "$J_CONTEXT"  >/dev/null 2>&1 || true
+          kubectl config delete-cluster "$J_CLUSTER"  >/dev/null 2>&1 || true
 
-          # Create the Jenkins-dedicated cluster if it doesn't exist
-          if ! kubectl config get-clusters | grep -qx "$J_CLUSTER"; then
-            kubectl config set-cluster "$J_CLUSTER" \
-              --server="https://kubernetes.docker.internal:6443" \
-              --insecure-skip-tls-verify=true
-          fi
+          # --- Create a fresh cluster entry with insecure-skip-tls-verify (demo-safe) ---
+          kubectl config set-cluster "$J_CLUSTER" \
+            --server="https://${HOST_NAME}:6443" \
+            --insecure-skip-tls-verify=true
 
+          # --- Create a fresh context that uses the same user + namespace as your base ctx ---
+          kubectl config set-context "$J_CONTEXT" \
+            --cluster="$J_CLUSTER" \
+            --user="$BASE_USER" \
+            --namespace="$NS"
 
-          # Create the Jenkins-dedicated context if missing (reuse the same user)
-          if ! kubectl config get-contexts -o name | grep -qx "$J_CONTEXT"; then
-            kubectl config set-context "$J_CONTEXT" \
-              --cluster="$J_CLUSTER" \
-              --user="$BASE_USER" \
-              --namespace="$NS"
-          fi
-
-          # Use Jenkins-only context
+          # Use it
           kubectl config use-context "$J_CONTEXT"
 
-          # Sanity checks
+          # Sanity
           kubectl version --client
-          kubectl cluster-info
+          kubectl cluster-info || true
           kubectl get ns
 
-          # 4) Deploy as before
+          # --- Deploy ---
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/deployment.yaml
-          kubectl set image deployment/ci-k8s-demo app=${FULL_TAG}
+          kubectl set image deployment/ci-k8s-demo app="${FULL_TAG}"
           kubectl rollout status deployment/ci-k8s-demo --timeout=120s
         '''
       }
     }
+
   }
   post {
     success { echo "Deployed ${FULL_TAG}" }
