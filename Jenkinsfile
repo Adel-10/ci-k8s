@@ -62,22 +62,16 @@ pipeline {
           done
           [ -z "$HOST_NAME" ] && HOST_NAME="kubernetes.docker.internal"
 
-          # --- IMPORTANT: delete any stale jenkins cluster/context so we don't reuse bad CA state ---
+          # --- Clean and recreate Jenkins-only cluster/context (demo-safe, skip CA) ---
           kubectl config delete-context "$J_CONTEXT"  >/dev/null 2>&1 || true
           kubectl config delete-cluster "$J_CLUSTER"  >/dev/null 2>&1 || true
-
-          # --- Create a fresh cluster entry with insecure-skip-tls-verify (demo-safe) ---
           kubectl config set-cluster "$J_CLUSTER" \
             --server="https://${HOST_NAME}:6443" \
             --insecure-skip-tls-verify=true
-
-          # --- Create a fresh context that uses the same user + namespace as your base ctx ---
           kubectl config set-context "$J_CONTEXT" \
             --cluster="$J_CLUSTER" \
             --user="$BASE_USER" \
             --namespace="$NS"
-
-          # Use it
           kubectl config use-context "$J_CONTEXT"
 
           # Sanity
@@ -85,11 +79,15 @@ pipeline {
           kubectl cluster-info || true
           kubectl get ns
 
-          # --- Deploy ---
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/deployment.yaml
-          kubectl set image deployment/ci-k8s-demo app="${FULL_TAG}"
-          kubectl rollout status deployment/ci-k8s-demo --timeout=120s
+          # --- Apply Service as-is (idempotent) ---
+          kubectl apply -n "$NS" -f k8s/service.yaml
+
+          # --- Templated apply of Deployment (inject FULL_TAG) ---
+          # Expect deployment.yaml to contain: image: adel1331/ci-k8s-demo:IMAGE_TAG
+          sed "s|IMAGE_TAG|${FULL_TAG##*:}|g" k8s/deployment.yaml | kubectl apply -n "$NS" -f -
+
+          # Wait for rollout
+          kubectl rollout status -n "$NS" deployment/ci-k8s-demo --timeout=120s
         '''
       }
     }
