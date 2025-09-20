@@ -13,50 +13,36 @@ It brings together Jenkins, Docker, and Kubernetes into a cohesive workflow, hig
   4) Deploy the updated app to Kubernetes
   5) Run a post-deployment smoke test
     
-- Containerized CI/CD
+- Containerized CI/CD: 
   Jenkins itself runs in Docker, with direct access to the host’s Docker daemon and kubeconfig.
 
-- Zero-Downtime Rollouts
+- Zero-Downtime Rollouts: 
   Kubernetes rolling updates ensure that new versions replace old ones seamlessly.
 
-- Automated Smoke Tests
+- Automated Smoke Tests: 
   Port-forwarding and scripted HTTP checks verify the service is live and healthy after deployment.
 
-- Infrastructure as Code
+- Infrastructure as Code: 
   Kubernetes manifests (deployment.yaml, service.yaml) define how the app is deployed and exposed inside the cluster.
 
 
 🛠️ Tech Stack
-Jenkins – CI/CD automation server
-Docker – Containerization & image registry integration
-Kubernetes – Deployment, orchestration, and service management
-kubectl – CLI for Kubernetes operations
-Docker Hub – Registry for container images
-
-
-📂 Project Structure
-ci-k8s-demo/
-├── app/                  # Sample Node.js app
-├── k8s/                  # Kubernetes manifests
-│   ├── deployment.yaml
-│   └── service.yaml
-├── Jenkinsfile           # Full CI/CD pipeline definition
-├── Dockerfile            # Container build definition
-└── README.md             # Documentation
+- Jenkins – CI/CD automation server
+- Docker – Containerization & image registry integration
+- Kubernetes – Deployment, orchestration, and service management
+- kubectl – CLI for Kubernetes operations
+- Docker Hub – Registry for container images
 
 
 ⚙️ How It Works
-Code Commit
-A commit to the main branch triggers Jenkins.
-
-Build & Push
-Jenkins builds a Docker image, tags it with the Git SHA, and pushes it to Docker Hub.
-
-Deploy
-Jenkins updates the Kubernetes Deployment with the new image and applies the manifests.
-
-Smoke Test
-Jenkins port-forwards the service to verify the application responds correctly.
+- Code Commit: 
+  A commit to the main branch triggers Jenkins.
+- Build & Push: 
+  Jenkins builds a Docker image, tags it with the Git SHA, and pushes it to Docker Hub.
+- Deploy: 
+  Jenkins updates the Kubernetes Deployment with the new image and applies the manifests.
+- Smoke Test: 
+  Jenkins port-forwards the service to verify the application responds correctly.
 
 
 📉 Current Shortcomings
@@ -73,7 +59,5 @@ This project was built for demonstration and learning purposes. Some trade-offs 
 - Harden cluster access (role-based access control, secrets management)
 - Extend smoke tests into a full integration test stage
 - Add monitoring and automated rollback strategies
-
-Experiment with GitOps tools (ArgoCD, Flux)
-
-Deploy to a multi-node cloud-hosted Kubernetes cluster
+- Experiment with GitOps tools (ArgoCD, Flux)
+- Deploy to a multi-node cloud-hosted Kubernetes cluster
